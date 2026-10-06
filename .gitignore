@@ -1,0 +1,32 @@
+# =============================================================================
+#  .gitignore: TPGS Single-Dish 40.0 Gsps Spectrometer Pipeline
+# =============================================================================
+
+# Build Artifacts & Binaries
+bin/*
+!bin/.gitkeep
+*.o
+*.a
+*.so
+*.dylib
+
+# Execution and Compiler Logs
+*.log
+build_out.txt
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+*.tmp
+
+# Scratch work
+scratch/

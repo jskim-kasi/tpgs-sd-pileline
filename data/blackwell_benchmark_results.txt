@@ -1,0 +1,36 @@
+=================================================================
+  BENCHMARK RESULTS: NVIDIA RTX PRO 6000 Blackwell Server Edition
+  GPU: NVIDIA RTX PRO 6000 Blackwell Server Edition (188 SMs, Compute 12.0)
+  Clock: ~2.43 GHz | Memory: 95.01 GB GDDR7 @ 1,461.2 GB/s peak
+  Timing Event (TE) Epoch: 48.0 ms (Option B Unified Sequential Pipeline)
+=================================================================
+
+Pipeline Configuration:
+  - Coarse OSPFB : M=2048, D=1280 (OS=1.60), T=4, 820 Subbands (16.0 GHz)
+  - Resampler    : I=108, D=125, Kr=8 (31.25 MSPS -> 27.00 MSPS)
+  - Fine CSPFB   : M=2000, D=2000, T=4, Delta_f=13.5000 kHz
+  - Input        : 48.0 ms TE (1,920,000,000 samples @ 40.0 Gsps, 6-bit packed 1.44 GB)
+  - Output       : 1,185,185 contiguous 13.5 kHz power channels (4.52 MB)
+
+[48.0 ms TE Sequential Pipeline Execution Times]
+  Stage 1: Coarse OSPFB (1,500,000 frames)    :  26.130 ms  ( 28.8% of total)
+  Stage 2: Transpose + Mixer (1.5M x 820)     :  43.753 ms  ( 48.2% of total)  [  450.3 GB/s GDDR7]
+  Stage 3: Fine CSPFB + Resampler (648 frames):  20.793 ms  ( 22.9% of total)  [Kr = 8 taps/phase]
+  -------------------------------------------------------------------------------
+  Total Pipeline Execution Time               :  90.680 ms
+  Timing Event (TE) Real-Time Budget          :  48.000 ms
+  Real-Time Speedup Factor                    :   0.53x     (Deficit: +42.680 ms over budget)
+
+[Standalone Benchmark Breakdown]
+  Fused 6-Bit Unpack + Coarse OSPFB (Mode 0)  :  23.204 ms  (Mode 2 L1: 26.096 ms)
+  2D Tiled Transpose (1.5M x 820 cuComplex)   :  43.707 ms  [Effective BW:  450.3 GB/s]
+  Fused Resampler + Fine CSPFB (Mode 0, Kr=8) :  20.789 ms  [1.73x faster than GH200!]
+
+[Automated Verification Status]
+  Noise Floor Mean Power: 2.8347e-05
+  Subband  10 (A=0.05): Peak ch 1090 (Exp 1090) | SNR = 14.0 dB | PASS
+  Subband 200 (A=0.11): Peak ch  900 (Exp  900) | SNR = 19.9 dB | PASS
+  Subband 410 (A=0.18): Peak ch  758 (Exp  759) | SNR = 24.3 dB | PASS
+  Subband 600 (A=0.23): Peak ch 1067 (Exp 1067) | SNR = 26.8 dB | PASS
+  Subband 810 (A=0.30): Peak ch 1176 (Exp 1177) | SNR = 26.2 dB | PASS
+  Tone Detection Status: ALL PASS

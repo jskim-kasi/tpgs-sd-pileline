@@ -1,0 +1,128 @@
+// =============================================================================
+//  FILE        : tpgs_params.h
+//  PROJECT     : TPGS Single-Dish 40.0 Gsps Spectrometer Pipeline
+//  DESCRIPTION : Mathematical invariants, multi-rate geometry, pre-data dimensions,
+//                cuFFTDx transform configurations, and constant memory layouts.
+//  AUTHOR      : Jongsoo Kim, Korea Astronomy and Space Science Institute (KASI)
+//  VERSION     : 0.1.0
+//  DATE        : October 2026
+//  OBSERVATORY : ALMA Wideband Sensitivity Upgrade (WSU)
+// =============================================================================
+
+#pragma once
+
+#include <stdint.h>
+#include <cuComplex.h>
+
+namespace tpgs {
+
+// ── 1. Global ADC and Observation Timing Invariants ──────────────────────────
+constexpr double FS_ADC                 = 40.0e9;       // 40.0 Gsps (40,000 MSPS)
+constexpr double NYQUIST_BW             = FS_ADC / 2.0; // 20.0 GHz
+constexpr double DURATION_TE            = 0.048;        // 48.0 ms Timing Event (TE) epoch
+constexpr double DURATION_CHUNK         = 0.016;        // 16.0 ms processing chunk
+constexpr int    NUM_CHUNKS_PER_TE      = 3;            // Exactly 3 chunks per 48 ms TE
+
+constexpr long long TOTAL_SAMPLES_TE    = (long long)(FS_ADC * DURATION_TE);    // 1,920,000,000 samples
+constexpr long long TOTAL_SAMPLES_CHUNK = (long long)(FS_ADC * DURATION_CHUNK); // 640,000,000 samples
+
+// 6-bit packing: 4 samples in 3 bytes (24 bits)
+constexpr int    SAMPLES_PER_PACK_GROUP = 4;
+constexpr int    BYTES_PER_PACK_GROUP   = 3;
+
+// ── 2. Stage 1: Coarse OSPFB Parameters (cuFFTDx Size<2048>) ─────────────────
+constexpr int    M_C                    = 2048;         // Coarse FFT channels
+constexpr int    D_C                    = 1280;         // Coarse decimation factor (OS = 1.6000)
+constexpr int    K1_C                   = 4;            // Coarse filter taps per branch
+constexpr int    N_TAPS_C               = M_C * K1_C;   // Total coarse taps = 8,192
+constexpr int    N_NYQUIST_C            = M_C / 2;      // 1024 active positive frequency subbands
+
+constexpr double DELTA_F_COARSE         = FS_ADC / M_C; // 19.53125 MHz
+constexpr double FS_COARSE              = FS_ADC / D_C; // 31.250 MSPS
+
+constexpr int    N_FRAMES_C_CHUNK       = (int)(TOTAL_SAMPLES_CHUNK / D_C); // 500,000 frames / 16 ms
+constexpr int    N_FRAMES_C_TE          = N_FRAMES_C_CHUNK * NUM_CHUNKS_PER_TE; // 1,500,000 frames / 48 ms
+
+// Coarse Pre-Data: FIR boundary history prefix
+constexpr int    COARSE_PREDATA_SAMPLES = N_TAPS_C;     // 8,192 ADC samples (6.0 KB)
+constexpr int    COARSE_PREDATA_BYTES   = (COARSE_PREDATA_SAMPLES / SAMPLES_PER_PACK_GROUP) * BYTES_PER_PACK_GROUP;
+
+// ── 3. Subband Selection: Central 16 GHz out of 20 GHz ───────────────────────
+constexpr double BW_SELECTED            = 16.0e9;       // 16.0 GHz central bandwidth
+// Subband 102 starts at: 102 * 19.53125 MHz = 1992.1875 MHz (2.0 GHz)
+constexpr int    K_START                = 102;
+// 820 subbands * 19.53125 MHz = 16.015625 GHz coverage (102 to 921)
+constexpr int    N_SUBBANDS             = 820;
+constexpr int    K_END                  = K_START + N_SUBBANDS; // 922
+
+// ── 4. Constant Memory Phase Correction (64.0 KB Limit) ──────────────────────
+// D_C / M_C = 1280 / 2048 = 5 / 8  -> exact periodicity q = 8 frames
+constexpr int    PHASE_PERIOD_P         = 5;
+constexpr int    PHASE_PERIOD_Q         = 8;
+constexpr int    PHASE_TABLE_ENTRIES    = PHASE_PERIOD_Q * N_SUBBANDS; // 8 * 820 = 6,560
+constexpr size_t PHASE_TABLE_BYTES      = PHASE_TABLE_ENTRIES * sizeof(float2); // 52,480 Bytes = 51.25 KB
+
+// ── 5. Stage 1.5: Polyphase Rational Resampler (108 / 125) ───────────────────
+constexpr int    I_RESAMP               = 108;          // Interpolation factor
+constexpr int    D_RESAMP               = 125;          // Decimation factor
+constexpr int    KR_RESAMP              = 8;            // Taps per phase
+constexpr int    N_TAPS_RESAMP          = I_RESAMP * KR_RESAMP; // 864 taps (3,456 Bytes)
+
+constexpr double FS_RESAMP              = FS_COARSE * (double)I_RESAMP / (double)D_RESAMP; // Exactly 27.000 MSPS
+
+// 500,000 * 108 / 125 = 432,000 resampled samples per subband per 16 ms chunk
+constexpr int    N_RESAMP_SAMPLES_CHUNK = (int)((long long)N_FRAMES_C_CHUNK * I_RESAMP / D_RESAMP); // 432,000
+constexpr int    N_RESAMP_SAMPLES_TE    = N_RESAMP_SAMPLES_CHUNK * NUM_CHUNKS_PER_TE; // 1,296,000
+
+// Resampler Pre-Data: 7 prior coarse samples per subband
+constexpr int    RESAMP_PREDATA_SAMPLES = KR_RESAMP - 1; // 7 coarse samples per subband
+
+// ── 6. Stage 2: Fine CSPFB Parameters (cuFFTDx Size<2000>) ───────────────────
+constexpr int    M_F                    = 2000;         // Fine FFT channels
+constexpr int    D_F                    = 2000;         // Critically sampled (D_F = M_F)
+constexpr int    K2_F                   = 4;            // Fine filter taps per branch
+constexpr int    N_TAPS_FINE            = M_F * K2_F;   // Total fine taps = 8,000 (32,000 Bytes)
+
+constexpr double DELTA_F_FINE           = FS_RESAMP / M_F; // Exactly 13500.0 Hz (13.5000 kHz)
+
+constexpr int    N_FRAMES_F_CHUNK       = N_RESAMP_SAMPLES_CHUNK / M_F; // 216 fine frames / 16 ms
+constexpr int    N_FRAMES_F_TE          = N_FRAMES_F_CHUNK * NUM_CHUNKS_PER_TE; // 648 fine frames / 48 ms
+
+// Fine Pre-Data: Ring buffer state preservation (3 fine frames per subband)
+constexpr int    FINE_PREDATA_FRAMES    = K2_F - 1;     // 3 fine frames
+constexpr int    FINE_PREDATA_SAMPLES   = FINE_PREDATA_FRAMES * M_F; // 6,000 samples per subband
+
+// ── 7. Frequency Alignment & Seamless Direct Array Stitching ─────────────────
+// Coarse to fine bin ratio: 19531.25 / 13.5 = 1446 + 41/54
+constexpr int    GRID_NUM               = 41;
+constexpr int    GRID_DEN               = 54;
+constexpr int    HALF_M_F               = M_F / 2;      // 1000
+
+// Channels kept per subband to cover exactly 19.53125 MHz
+constexpr int    N_FINE_KEEP_BASE       = 1446;
+// Total stitched channels across the central 16.0 GHz band: 16 GHz / 13.5 kHz
+constexpr int    TOTAL_STITCHED_CHANNELS= 1185185;      // 1,185,185 contiguous 13.5 kHz bins
+
+// ── 8. Multi-Tone Stimulus Testbed Configuration ─────────────────────────────
+struct CWTone {
+    int    subband;     // Subband index (0..819, relative to K_START)
+    int    fine_offset; // Offset within passband (-700..+700)
+    double freq_hz;     // Exact RF frequency in Hz
+    float  amp;         // Amplitude relative to quantization levels
+};
+
+// Reference interior subbands for automated verification
+constexpr int NUM_REF_SUBBANDS = 5;
+constexpr int REF_SUBBANDS[NUM_REF_SUBBANDS] = { 10, 200, 410, 600, 810 };
+
+constexpr float NOISE_SIGMA     = 8.0f;  // Standard operating noise level in 6-bit
+constexpr float QUANT_DELTA     = 1.0f;
+constexpr unsigned long long CURAND_SEED = 123456789ULL;
+
+// ── 9. Filter File Paths ─────────────────────────────────────────────────────
+constexpr const char* FILTER_COARSE_PATH  = "filters/h_coarse_2048_remez.bin";
+constexpr const char* FILTER_RESAMP_PATH  = "filters/h_resamp_108_125_remez.bin";
+constexpr const char* FILTER_FINE_PATH    = "filters/h_fine_2000_remez.bin";
+constexpr const char* OUTPUT_SPECTRUM_BIN = "data/power_spectrum_16ghz.bin";
+
+} // namespace tpgs

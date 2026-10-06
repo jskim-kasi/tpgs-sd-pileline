@@ -1,0 +1,36 @@
+=================================================================
+  ARCHIVED BENCHMARK RESULTS: NVIDIA GH200 Grace Hopper (144G HBM3e)
+  GPU: NVIDIA GH200 144GB (132 SMs, Compute 9.0)
+  Clock: ~1.98 GHz | Memory: 142.50 GB HBM3e @ 2,160 GB/s peak
+  Timing Event (TE) Epoch: 48.0 ms (Option B Unified Sequential Pipeline)
+=================================================================
+
+Pipeline Configuration:
+  - Coarse OSPFB : M=2048, D=1280 (OS=1.60), T=4, 820 Subbands (16.0 GHz)
+  - Resampler    : I=108, D=125, Kr=8 (31.25 MSPS -> 27.00 MSPS)
+  - Fine CSPFB   : M=2000, D=2000, T=4, Delta_f=13.5000 kHz
+  - Input        : 48.0 ms TE (1,920,000,000 samples @ 40.0 Gsps, 6-bit packed 1.44 GB)
+  - Output       : 1,185,185 contiguous 13.5 kHz power channels (4.52 MB)
+
+[48.0 ms TE Sequential Pipeline Execution Times]
+  Stage 1: Coarse OSPFB (1,500,000 frames)    :  25.120 ms  ( 35.7% of total)
+  Stage 2: Transpose + Mixer (1.5M x 820)     :   9.112 ms  ( 12.9% of total)  [2,159.6 GB/s HBM3e]
+  Stage 3: Fine CSPFB + Resampler (648 frames):  36.128 ms  ( 51.3% of total)  [Kr = 8 taps/phase]
+  -------------------------------------------------------------------------------
+  Total Pipeline Execution Time               :  70.369 ms
+  Timing Event (TE) Real-Time Budget          :  48.000 ms
+  Real-Time Speedup Factor                    :   0.68x     (Deficit: +22.369 ms over budget)
+
+[Standalone Benchmark Breakdown]
+  Fused 6-Bit Unpack + Coarse OSPFB (L1 Cache):  25.220 ms
+  2D Tiled Transpose (1.5M x 820 cuComplex)   :   9.113 ms  [Effective BW: 2159.6 GB/s]
+  Fused Resampler + Fine CSPFB (Mode 0, Kr=8) :  36.047 ms
+
+[Automated Verification Status]
+  Noise Floor Mean Power: 2.8348e-05
+  Subband  10 (A=0.05): Peak ch 1090 (Exp 1090) | SNR = 13.9 dB | PASS
+  Subband 200 (A=0.11): Peak ch  899 (Exp  900) | SNR = 19.2 dB | PASS
+  Subband 410 (A=0.18): Peak ch  758 (Exp  759) | SNR = 23.0 dB | PASS
+  Subband 600 (A=0.23): Peak ch 1067 (Exp 1067) | SNR = 26.8 dB | PASS
+  Subband 810 (A=0.30): Peak ch 1177 (Exp 1177) | SNR = 26.4 dB | PASS
+  Tone Detection Status: ALL PASS
