@@ -19,14 +19,24 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def generate_unified_timing_budget(output_path):
     # Benchmark Data (Full 48.0 ms Timing Event TE)
-    gh200_times = [25.120, 9.112, 36.128, 70.369]
-    rtx6000_times = [26.130, 43.753, 20.793, 90.680]
+    gh200_times = [25.214, 9.341, 19.434, 53.996]
+    
+    rf_file = os.path.join(REPO_ROOT, 'data', 'roofline_metrics.txt')
+    c_ms, t_ms, f_ms, tot_ms = 27.049, 44.802, 11.822, 83.677
+    if os.path.exists(rf_file):
+        with open(rf_file, 'r') as f:
+            for line in f:
+                if 'COARSE_MS=' in line: c_ms = float(line.split('=')[1])
+                elif 'TRANSPOSE_MS=' in line: t_ms = float(line.split('=')[1])
+                elif 'FINE_MS=' in line: f_ms = float(line.split('=')[1])
+                elif 'TOTAL_PIPELINE_MS=' in line: tot_ms = float(line.split('=')[1])
+    rtx6000_times = [c_ms, t_ms, f_ms, tot_ms]
     budget_ms = 48.0
 
     categories = [
-        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.5M frames)',
-        'Stage 2: Transpose + Mixer\n(1.5M x 820 cuComplex)',
-        'Stage 3: Resamp + Fine CSPFB\n(Kr=8, Bluestein 2000)',
+        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.536M frames)',
+        'Stage 2: Transpose + Mixer\n(1.536M x 820 cuComplex)',
+        'Stage 3: Resamp + Fine CSPFB\n(Kr=8, K2=5, Native 2048)',
         'Total Pipeline Execution\n(Full 48.0 ms TE Stream)'
     ]
 
@@ -72,9 +82,9 @@ def generate_unified_timing_budget(output_path):
         val_g = gh200_times[i]
         label_g = f"{val_g:.2f} ms"
         if i == 1:
-            label_g += " (4.80x faster)"
+            label_g += f" ({rtx6000_times[1]/val_g:.2f}x faster)"
         elif i == 3:
-            label_g += f" (0.68x RT)"
+            label_g += f" ({budget_ms/val_g:.2f}x RT)"
         ax.text(val_g + 1.2, y_gh200[i], label_g, va='center', ha='left',
                 fontsize=10.5, fontweight='bold', color='#0d47a1', zorder=5)
 
@@ -82,9 +92,9 @@ def generate_unified_timing_budget(output_path):
         val_r = rtx6000_times[i]
         label_r = f"{val_r:.2f} ms"
         if i == 2:
-            label_r += " (1.74x faster)"
+            label_r += f" ({gh200_times[2]/val_r:.2f}x faster)"
         elif i == 3:
-            label_r += f" (0.53x RT)"
+            label_r += f" ({budget_ms/val_r:.2f}x RT)"
         ax.text(val_r + 1.2, y_rtx[i], label_r, va='center', ha='left',
                 fontsize=10.5, fontweight='bold', color='#b75500', zorder=5)
 
@@ -92,30 +102,29 @@ def generate_unified_timing_budget(output_path):
     ax.set_yticks(y)
     ax.set_yticklabels(categories, fontsize=11, fontweight='bold')
     ax.set_xlabel('Execution Latency per 48.0 ms Timing Event (ms)', fontsize=12, fontweight='bold')
-    ax.set_xlim(0, 125)
+    ax.set_xlim(0, 135)
 
     # Secondary X-Axis: Speedup Relative to Real-Time (48.0 ms / Latency)
-    secax = ax.secondary_xaxis('top', functions=(
-        lambda x: np.where(x >= 0.5, budget_ms / np.clip(x, 0.5, 125.0), 96.0),
-        lambda r: np.where(r >= 0.38, budget_ms / np.clip(r, 0.38, 96.0), 125.0)
-    ))
-    secax.set_xlabel('Equivalent Real-Time Speedup Factor (1.0x = Real-Time Threshold)',
-                     fontsize=11.5, fontweight='bold', color='#b71c1c', labelpad=10)
-    secax.tick_params(colors='#b71c1c', labelsize=10)
+    sec_pos = [16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 120.0]
+    secax = ax.secondary_xaxis('top')
+    secax.set_ticks(sec_pos, labels=[f"{budget_ms/p:.1f}x" for p in sec_pos])
+    secax.set_xlabel('Equivalent Real-Time Factor (48.0 ms / Latency, 1.0x = Real-Time Threshold)',
+                     fontsize=11.0, fontweight='bold', color='#b71c1c', labelpad=10)
+    secax.tick_params(colors='#b71c1c', labelsize=9.5)
 
     # Title & Legend
     ax.set_title('ALMA TPGS 40 Gsps Single-Dish Spectrometer Pipeline: Time Budget Comparison\n'
                  'NVIDIA GH200 Grace Hopper vs. NVIDIA RTX PRO 6000 Blackwell',
                  fontsize=14, fontweight='bold', pad=15)
-    ax.legend(loc='lower right', fontsize=10.2, framealpha=0.95, facecolor='white', edgecolor='#cccccc')
+    ax.legend(loc='upper right', fontsize=10.2, framealpha=0.95, facecolor='white', edgecolor='#cccccc')
     ax.grid(True, axis='x', linestyle=':', alpha=0.7, zorder=0)
     ax.invert_yaxis()  # Stage 1 at top
 
     # Explanatory KPI Summary Callout
     kpi_text = (
-        "Key Takeaways:  (1) Transpose is 4.80x faster on GH200 due to massive coherent memory bandwidth.\n"
-        "                (2) Bluestein Fine FFT is 1.74x faster on Blackwell due to enhanced FP32 ALUs & cache.\n"
-        "                (3) Pipelining 16 ms chunks across streams satisfies real-time budget on both architectures."
+        "Key Takeaways:  (1) Transpose is 4.80x faster on GH200 due to massive coherent memory bandwidth (2.16 TB/s HBM3e vs 450 GB/s GDDR7).\n"
+        "                (2) Fine CSPFB (Pow2 Size<2048>) is 1.64x faster on Blackwell (11.82 ms vs 19.43 ms on GH200).\n"
+        "                (3) Pipelining 16 ms chunks across streams or dual GPUs satisfies real-time budget on both architectures."
     )
     fig.text(0.5, 0.02, kpi_text, ha='center', va='bottom', fontsize=9.2, fontweight='bold', color='#004d40',
              multialignment='center',

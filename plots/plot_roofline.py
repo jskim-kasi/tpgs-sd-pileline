@@ -19,11 +19,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def parse_metrics(metrics_file):
     metrics = {
-        'COARSE_MS': 25.120,
-        'TRANSPOSE_MS': 9.112,
-        'FINE_MS': 36.128,
-        'TOTAL_PIPELINE_MS': 70.369,
-        'REALTIME_FACTOR': 0.68
+        'COARSE_MS': 25.214,
+        'TRANSPOSE_MS': 9.341,
+        'FINE_MS': 19.434,
+        'TOTAL_PIPELINE_MS': 53.996,
+        'REALTIME_FACTOR': 0.89
     }
     gh200_file = os.path.join(REPO_ROOT, 'data', 'gh200_benchmark_results.txt')
     if os.path.exists(gh200_file):
@@ -54,20 +54,21 @@ def plot_roofline(metrics, output_path):
     RIDGE_POINT = PEAK_FLOPS_TFLOPS / HBM3_BW_TBYTES_SEC # 16.7 FLOP/Byte
     
     # Kernel Metrics (per 48 ms TE)
-    # Stage 1: Coarse OSPFB: 1.5M frames x 2048 x (4 taps + 5log2(2048)) = 181.2 GFLOP. Data: 1.44 GB input + 9.84 GB out = 11.28 GB.
-    # AI_1 = 181.2 / 11.28 = 16.06 FLOP/Byte. Perf = 181.2 GFLOP / 25.12 ms = 7.21 TFLOPS.
-    # Stage 2: Transpose: 0 FLOP (pure bandwidth). Data = 2 x 9.84 GB = 19.68 GB / 9.112 ms = 2.16 TB/s.
-    # Stage 3: Fine CSPFB: 820 sb x 648 frames x [8 taps resamp + 2000 x 4 taps + Bluestein FFT ~ 25K ops] = 205.8 GFLOP.
-    # Data = 9.84 GB in + 4.74 GB out = 14.58 GB. AI_3 = 205.8 / 14.58 = 14.11 FLOP/Byte. Perf = 205.8 / 36.128 ms = 5.70 TFLOPS.
+    # Stage 1: Coarse OSPFB: 1.536M frames x 2048 x (4 taps + 5log2(2048)) = 185.5 GFLOP.
+    # Stage 2: Transpose: 0 FLOP (pure bandwidth). Data = 2 x 9.84 GB = 19.68 GB / 9.34 ms = 2.11 TB/s.
+    # Stage 3: Fine CSPFB: 820 sb x 648 frames x [8 taps resamp + 2048 x 5 taps + Native 2048 Cooley-Tukey FFT] = 70.7 GFLOP.
+    # Data = 9.84 GB in + 4.52 MB out = 9.85 GB. AI_3 = 70.7 / 9.85 = 7.18 FLOP/Byte. Perf = 70.7 / 19.43 ms = 3.64 TFLOPS.
     
+    gflop_fine = 70.7
+    perf_fine = gflop_fine / metrics['FINE_MS']
     kernels = [
         {
             'name': 'Stage 1: Coarse OSPFB',
             'ai': 16.06,
-            'perf': 181.2 / metrics['COARSE_MS'],
+            'perf': 185.5 / metrics['COARSE_MS'],
             'color': '#1976d2',
             'marker': 'o',
-            'notes': f"{metrics['COARSE_MS']:.2f} ms (7.21 TFLOPS, 449 GB/s)"
+            'notes': f"{metrics['COARSE_MS']:.2f} ms ({185.5 / metrics['COARSE_MS']:.2f} TFLOPS, 449 GB/s)"
         },
         {
             'name': 'Stage 2: Transpose + Mixer',
@@ -79,11 +80,11 @@ def plot_roofline(metrics, output_path):
         },
         {
             'name': 'Stage 3: Fine CSPFB + Resamp',
-            'ai': 14.11,
-            'perf': 205.8 / metrics['FINE_MS'],
+            'ai': 7.18,
+            'perf': perf_fine,
             'color': '#7b1fa2',
             'marker': '^',
-            'notes': f"{metrics['FINE_MS']:.2f} ms (5.70 TFLOPS, 404 GB/s)"
+            'notes': f"{metrics['FINE_MS']:.2f} ms ({perf_fine:.2f} TFLOPS, 507 GB/s)"
         }
     ]
     

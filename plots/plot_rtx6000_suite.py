@@ -202,24 +202,44 @@ def plot_rtx6000_tone_zooms(data, output_path):
     plt.close()
     print(f"[2/4] Saved RTX6000 CW Tones Zoom: {output_path}")
 
+def load_metrics():
+    metrics = {
+        'COARSE_MS': 27.049,
+        'TRANSPOSE_MS': 44.802,
+        'FINE_MS': 11.822,
+        'TOTAL_PIPELINE_MS': 83.677,
+        'REALTIME_FACTOR': 0.57
+    }
+    rf_file = os.path.join(REPO_ROOT, 'data', 'roofline_metrics.txt')
+    if os.path.exists(rf_file):
+        with open(rf_file, 'r') as f:
+            for line in f:
+                if '=' in line:
+                    k, v = line.strip().split('=')
+                    try:
+                        metrics[k] = float(v)
+                    except ValueError:
+                        pass
+    return metrics
+
 # =============================================================================
 #  PLOT 3: TIMING BUDGET (RTX PRO 6000 BLACKWELL)
 # =============================================================================
 
-def plot_rtx6000_timing_budget(output_path):
-    coarse_ms = 26.130
-    trans_ms  = 43.753
-    fine_ms   = 20.793
-    total_ms  = 90.680
+def plot_rtx6000_timing_budget(metrics, output_path):
+    coarse_ms = metrics.get('COARSE_MS', 27.049)
+    trans_ms  = metrics.get('TRANSPOSE_MS', 44.802)
+    fine_ms   = metrics.get('FINE_MS', 11.822)
+    total_ms  = metrics.get('TOTAL_PIPELINE_MS', coarse_ms + trans_ms + fine_ms)
     budget_ms = 48.0
     rt_factor = budget_ms / total_ms
 
     fig, ax = plt.subplots(figsize=(11.5, 6.4), dpi=300)
 
     categories = [
-        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.5M frames)',
-        'Stage 2: Transpose + Mixer\n(1.5M x 820 cuComplex, GDDR7)',
-        'Stage 3: Resamp + Fine CSPFB\n(Kr=8, Bluestein 2000, 188 SMs)',
+        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.536M frames)',
+        'Stage 2: Transpose + Mixer\n(1.536M x 820 cuComplex, GDDR7)',
+        'Stage 3: Resamp + Fine CSPFB\n(Kr=8, K2=5, Pow2 2048, 188 SMs)',
         'Total Pipeline Execution\n(Full 48.0 ms TE Stream)'
     ]
     times = [coarse_ms, trans_ms, fine_ms, total_ms]
@@ -250,8 +270,8 @@ def plot_rtx6000_timing_budget(output_path):
                 bbox=dict(boxstyle='round,pad=0.35', facecolor='#ffebee', edgecolor='#d62728', alpha=0.95))
 
     # Highlight Stage 3 compute win
-    ax.annotate(f'Fine CSPFB Speedup:\n1.74x faster than GH200!\n(20.79 ms vs 36.13 ms)',
-                xy=(fine_ms, 1.74), xytext=(65.0, 1.65),
+    ax.annotate(f'Fine CSPFB Speedup:\n1.64x faster than GH200!\n({fine_ms:.2f} ms vs 19.43 ms)',
+                xy=(fine_ms, 1.74), xytext=(55.0, 1.65),
                 arrowprops=dict(facecolor='#2ca02c', edgecolor='#2ca02c', shrink=0.08, width=1.5, headwidth=6),
                 fontsize=9.2, fontweight='bold', color='#1b5e20',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#e8f5e9', edgecolor='#2ca02c', alpha=0.95))
@@ -283,32 +303,32 @@ def plot_rtx6000_timing_budget(output_path):
 #  PLOT 4: ROOFLINE MODEL (RTX PRO 6000 BLACKWELL)
 # =============================================================================
 
-def plot_rtx6000_roofline(output_path):
+def plot_rtx6000_roofline(metrics, output_path):
     # NVIDIA RTX PRO 6000 Blackwell Server Edition Specifications
     PEAK_FLOPS_TFLOPS = 117.0  # FP32 Vector Peak (188 SMs * 128 cores * 2.43 GHz * 2 FLOP/cycle)
     PEAK_BW_TBS = 1.4612       # GDDR7 Peak (1,461.2 GB/s)
     RIDGE_INTENSITY = (PEAK_FLOPS_TFLOPS * 1e12) / (PEAK_BW_TBS * 1e12) # ~80.07 FLOP/Byte
 
-    coarse_ms = 26.130
-    trans_ms  = 43.753
-    fine_ms   = 20.793
+    coarse_ms = metrics.get('COARSE_MS', 27.049)
+    trans_ms  = metrics.get('TRANSPOSE_MS', 44.802)
+    fine_ms   = metrics.get('FINE_MS', 11.822)
 
     # Kernel Metrics Calculations (Full 48.0 ms Timing Event TE)
-    coarse_flops = 1500000 * (112640 + 16384 + 4920) # 200.91 GFLOPs
-    coarse_bytes = 1500000 * (960 + 820 * 8)          # 11.28 GB
+    coarse_flops = 1536000 * (112640 + 16384 + 4920) # ~205.7 GFLOPs
+    coarse_bytes = 1536000 * (960 + 820 * 8)          # 11.55 GB
     coarse_ai = coarse_flops / coarse_bytes          # 17.81 FLOP/Byte
     coarse_perf_tflops = (coarse_flops / (coarse_ms * 1e-3)) / 1e12
 
-    trans_bytes = 1500000 * 820 * 8 * 2               # 19.68 GB
-    trans_flops = 1500000 * 820 * 6                   # 7.38 GFLOPs
+    trans_bytes = 1536000 * 820 * 8 * 2               # 20.15 GB
+    trans_flops = 1536000 * 820 * 6                   # 7.56 GFLOPs
     trans_ai = trans_flops / trans_bytes             # 0.375 FLOP/Byte
     trans_perf_tflops = (trans_flops / (trans_ms * 1e-3)) / 1e12
     trans_bw_gbs = (trans_bytes / (trans_ms * 1e-3)) / 1e9
 
     fine_ffts = 820 * 648                             # 531,360
-    fine_flops = fine_ffts * (64000 + 110000 + 6000) # 95.64 GFLOPs
-    fine_bytes = fine_ffts * (2000 * 8 + 1446 * 4)   # 11.58 GB
-    fine_ai = fine_flops / fine_bytes                # 8.26 FLOP/Byte
+    fine_flops = fine_ffts * (64000 + 81920 + 112640 + 4096) # Resampler + 5 taps + Pow2 FFT + power acc (~139.5 GFLOPs)
+    fine_bytes = fine_ffts * (2048 * 8 + 1446 * 4)   # 11.78 GB
+    fine_ai = fine_flops / fine_bytes                # ~11.84 FLOP/Byte
     fine_perf_tflops = (fine_flops / (fine_ms * 1e-3)) / 1e12
 
     fig, ax = plt.subplots(figsize=(10.5, 6.8), dpi=300)
@@ -338,7 +358,7 @@ def plot_rtx6000_roofline(output_path):
     ax.annotate(f'Transpose + Mixer\n({trans_bw_gbs:.0f} GB/s GDDR7)', xy=(trans_ai, trans_perf_tflops),
                 xytext=(0.55, 0.08),
                 arrowprops=dict(arrowstyle="->", color='#ff7f0e', lw=1.3), fontweight='bold', fontsize=9.2)
-    ax.annotate(f'Fine CSPFB\n({fine_perf_tflops:.2f} TFLOP/s, 1.74x GH200)', xy=(fine_ai, fine_perf_tflops),
+    ax.annotate(f'Fine CSPFB\n({fine_perf_tflops:.2f} TFLOP/s, 1.64x GH200)', xy=(fine_ai, fine_perf_tflops),
                 xytext=(fine_ai * 1.25, fine_perf_tflops * 0.85),
                 arrowprops=dict(arrowstyle="->", color='#2ca02c', lw=1.3), fontweight='bold', fontsize=9.2)
 
@@ -369,6 +389,7 @@ def plot_rtx6000_roofline(output_path):
 def main():
     bin_file = os.path.join(REPO_ROOT, 'data', 'power_spectrum_16ghz.bin')
     hdr, data = load_spectrum(bin_file)
+    metrics = load_metrics()
 
     p1 = os.path.join(REPO_ROOT, 'plots', 'rtx6000_spectrum_16ghz_full.png')
     p2 = os.path.join(REPO_ROOT, 'plots', 'rtx6000_spectrum_cw_tones_zoom.png')
@@ -377,9 +398,10 @@ def main():
 
     plot_rtx6000_full_spectrum(data, p1)
     plot_rtx6000_tone_zooms(data, p2)
-    plot_rtx6000_timing_budget(p3)
-    plot_rtx6000_roofline(p4)
+    plot_rtx6000_timing_budget(metrics, p3)
+    plot_rtx6000_roofline(metrics, p4)
     print("\nAll 4 RTX PRO 6000 Blackwell plots generated successfully!")
 
 if __name__ == '__main__':
     main()
+
