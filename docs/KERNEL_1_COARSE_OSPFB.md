@@ -55,6 +55,32 @@ In conventional pipelines, 6-bit sample unpacking is executed as an isolated ker
 
 ---
 
+### 2.1 Dual-Frame Delay Line Sizing & Unpack Geometry
+
+To process 2 coarse FFTs per block concurrently (`FFTsPerBlock<2>()`), the thread block maintains a shared delay line `s_unpacked` across consecutive frames `m0` (lane 0) and `m0 + 1` (lane 1):
+
+1. **Required Delay Span**:
+   - Lane 0 evaluates frame `m0` spanning samples `[0 .. 8,191]` (`N_TAPS_C = 8,192`).
+   - Lane 1 evaluates frame `m0 + 1` starting at stride `D_C = 1,250`, spanning samples `[1,250 .. 9,441]`.
+   - Total sample span needed across both lanes:
+     `COARSE_DUAL_FRAME_SPAN = (FFTS_PER_BLOCK_C - 1) * D_C + N_TAPS_C = 1 * 1250 + 8192 = 9,442 samples`.
+
+2. **Vectorized Thread Unpack**:
+   - Each thread collaboratively unpacks four 24-bit chunks (12 bytes) into four `float4` vectors (16 floats per thread).
+   - `COARSE_UNPACK_SAMPLES_PER_TH = 16`.
+   - `COARSE_UNPACK_BYTES_PER_TH = 12`.
+
+3. **Active Unpack Threads**:
+   - `COARSE_UNPACK_THREADS = ceil(9,442 / 16) = (9442 + 16 - 1) / 16 = 592 threads`.
+   - Threads `flat_tid < 592` execute collaborative unpacking directly into `s_unpacked`.
+
+4. **Shared Memory Buffer Allocation**:
+   - `COARSE_UNPACK_SMEM_FLOATS = COARSE_UNPACK_THREADS * COARSE_UNPACK_SAMPLES_PER_TH = 592 * 16 = 9,472 floats`.
+   - `COARSE_UNPACK_SMEM_BYTES = 9,472 * 4 = 37,888 bytes`.
+   - Because 37,888 bytes is a multiple of 16 bytes, it guarantees strict 128-bit alignment for `s_filter` which is placed immediately after `s_unpacked` in dynamic shared memory.
+
+---
+
 ## 3. Coarse Filter Coefficient Caching Modes
 
 The kernel provides three compile-time template modes for storing the 8,192 FIR prototype filter coefficients:

@@ -253,7 +253,7 @@ __global__ void unpack_coarse_ospfb_kernel(
     if constexpr (StorageMode == 1) {
         // Mode 1: Zero-conflict Shared Memory filter caching (30 registers, 1-cycle on-chip read)
         s_filter = reinterpret_cast<float*>(
-            smem_raw + FFT::shared_memory_size + 9472 * sizeof(float));
+            smem_raw + FFT::shared_memory_size + COARSE_UNPACK_SMEM_BYTES);
         int total_threads = blockDim.x * blockDim.y;
         for (int i = flat_tid; i < N_TAPS_C; i += total_threads) {
             s_filter[i] = d_filter[i];
@@ -273,8 +273,8 @@ __global__ void unpack_coarse_ospfb_kernel(
         const uint32_t* src_words = reinterpret_cast<const uint32_t*>(d_input_packed + aligned_base_byte);
 
         // Collaborative 32-bit word unpack directly from global memory into s_unpacked
-        if (flat_tid < 592) {
-            int start_byte = byte_offset + flat_tid * 12;
+        if (flat_tid < COARSE_UNPACK_THREADS) {
+            int start_byte = byte_offset + flat_tid * COARSE_UNPACK_BYTES_PER_TH;
             int word_idx = start_byte >> 2;
             int shift = byte_offset & 3;
 
@@ -314,7 +314,7 @@ __global__ void unpack_coarse_ospfb_kernel(
             float4 f2 = unpack_24bit_to_float4(c2);
             float4 f3 = unpack_24bit_to_float4(c3);
 
-            float4* s_dst4 = reinterpret_cast<float4*>(s_unpacked + flat_tid * 16);
+            float4* s_dst4 = reinterpret_cast<float4*>(s_unpacked + flat_tid * COARSE_UNPACK_SAMPLES_PER_TH);
             s_dst4[0] = f0;
             s_dst4[1] = f1;
             s_dst4[2] = f2;
@@ -967,7 +967,7 @@ void run_tpgs_pipeline(int num_sms)
     CUDA_CHECK(cudaEventCreate(&ev_f_stop));
 
     // Dynamic Shared Memory Allocation Setup (Option B: Direct Global Unpack - Zero s_packed smem)
-    size_t smem_coarse_mode2 = FFT_C::shared_memory_size + 9472 * sizeof(float);
+    size_t smem_coarse_mode2 = FFT_C::shared_memory_size + COARSE_UNPACK_SMEM_BYTES;
     size_t smem_coarse_mode1 = smem_coarse_mode2 + N_TAPS_C * sizeof(float);
     size_t smem_fine         = FFT_F::shared_memory_size;
     CUDA_CHECK(cudaFuncSetAttribute(unpack_coarse_ospfb_kernel<FFT_C, 0>,

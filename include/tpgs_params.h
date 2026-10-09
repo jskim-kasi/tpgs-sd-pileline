@@ -50,6 +50,15 @@ constexpr int    N_FRAMES_C_TE          = N_FRAMES_C_CHUNK * NUM_CHUNKS_PER_TE; 
 constexpr int    COARSE_PREDATA_SAMPLES = N_TAPS_C;     // 8,192 ADC samples (6.0 KB)
 constexpr int    COARSE_PREDATA_BYTES   = (COARSE_PREDATA_SAMPLES / SAMPLES_PER_PACK_GROUP) * BYTES_PER_PACK_GROUP;
 
+// Coarse Dual-FFT Unpack Buffer Sizing (eliminates magic numbers 9472 & 592)
+constexpr int    FFTS_PER_BLOCK_C              = 2;            // 2 coarse FFTs per block
+constexpr int    COARSE_DUAL_FRAME_SPAN        = (FFTS_PER_BLOCK_C - 1) * D_C + N_TAPS_C; // 9,442 samples
+constexpr int    COARSE_UNPACK_SAMPLES_PER_TH  = 16;           // 4 x float4 per thread
+constexpr int    COARSE_UNPACK_BYTES_PER_TH    = 12;           // 4 x 24-bit chunks (12 bytes) per thread
+constexpr int    COARSE_UNPACK_THREADS         = (COARSE_DUAL_FRAME_SPAN + COARSE_UNPACK_SAMPLES_PER_TH - 1) / COARSE_UNPACK_SAMPLES_PER_TH; // 592 threads
+constexpr int    COARSE_UNPACK_SMEM_FLOATS     = COARSE_UNPACK_THREADS * COARSE_UNPACK_SAMPLES_PER_TH; // 9,472 floats
+constexpr size_t COARSE_UNPACK_SMEM_BYTES      = (size_t)COARSE_UNPACK_SMEM_FLOATS * sizeof(float); // 37,888 bytes
+
 // ── 3. Subband Selection: Central 16 GHz out of 20 GHz ───────────────────────
 constexpr double BW_SELECTED            = 16.0e9;       // 16.0 GHz central bandwidth
 // Subband 102 starts at: 102 * 19.53125 MHz = 1992.1875 MHz (2.0 GHz)
