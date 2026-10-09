@@ -71,6 +71,13 @@ constexpr int    K_END                  = K_START + N_SUBBANDS; // 922
 // D_C / M_C = 1250 / 2048 = 625 / 1024 -> exact periodicity q = 1024 frames
 constexpr int    PHASE_PERIOD_P         = 625;
 constexpr int    PHASE_PERIOD_Q         = 1024;
+constexpr int    PHASE_PERIOD_MASK      = PHASE_PERIOD_Q - 1;   // 1023 (bitwise modulo Q)
+constexpr float  TWO_PI_F               = 6.28318530717958647692f;
+
+// Active elements per thread covering subbands K_START..K_END (102..921)
+// With STRIDE = 512, e=0 covers 0..511, e=1 covers 512..1023. K_END=922 fits in 2 branches.
+constexpr int    EPT_ACTIVE_COARSE      = (K_END + (M_C / 4) - 1) / (M_C / 4); // 2
+
 constexpr int    PHASE_TABLE_ENTRIES    = 8 * N_SUBBANDS; // Unused by analytical SFU rotation
 constexpr size_t PHASE_TABLE_BYTES      = PHASE_TABLE_ENTRIES * sizeof(float2);
 

@@ -187,12 +187,12 @@ __device__ __forceinline__ float4 unpack_24bit_to_float4(uint32_t val)
     return make_float4((float)q0, (float)q1, (float)q2, (float)q3);
 }
 
-// Analytical Phase Rotation: Phi_k[m] = exp(-j * 2*pi * ((k * m * 625) % 1024) / 1024)
+// Analytical Phase Rotation: Phi_k[m] = exp(-j * 2*pi * ((k * m * PHASE_PERIOD_P) % PHASE_PERIOD_Q) / PHASE_PERIOD_Q)
 // Evaluated analytically via hardware SFU __sincosf with zero memory or bank conflicts
 __device__ __forceinline__ float2 get_phase_rotation_fast(int k, int m_factor)
 {
-    int n = ((k & 1023) * m_factor) & 1023;
-    float angle = -6.28318530717958647692f * ((float)n * (1.0f / 1024.0f));
+    int n = ((k & PHASE_PERIOD_MASK) * m_factor) & PHASE_PERIOD_MASK;
+    float angle = -TWO_PI_F * ((float)n * (1.0f / (float)PHASE_PERIOD_Q));
     float s, c;
     __sincosf(angle, &s, &c);
     return make_float2(c, s);
@@ -200,7 +200,7 @@ __device__ __forceinline__ float2 get_phase_rotation_fast(int k, int m_factor)
 
 __device__ __forceinline__ float2 get_phase_rotation(int k, int m)
 {
-    int m_factor = ((m & 1023) * 625) & 1023;
+    int m_factor = ((m & PHASE_PERIOD_MASK) * PHASE_PERIOD_P) & PHASE_PERIOD_MASK;
     return get_phase_rotation_fast(k, m_factor);
 }
 
@@ -336,27 +336,27 @@ __global__ void unpack_coarse_ospfb_kernel(
             if (valid && k < M_C) {
                 int s_idx = lane_sample_offset + k;
                 if constexpr (StorageMode == 1) {
-                    float tap0 = s_filter[k];
-                    float tap1 = s_filter[k + 2048];
-                    float tap2 = s_filter[k + 4096];
-                    float tap3 = s_filter[k + 6144];
+                    float tap0 = s_filter[k + 0 * M_C];
+                    float tap1 = s_filter[k + 1 * M_C];
+                    float tap2 = s_filter[k + 2 * M_C];
+                    float tap3 = s_filter[k + 3 * M_C];
 
-                    float dq0 = s_unpacked[s_idx];
-                    float dq1 = s_unpacked[s_idx + 2048];
-                    float dq2 = s_unpacked[s_idx + 4096];
-                    float dq3 = s_unpacked[s_idx + 6144];
+                    float dq0 = s_unpacked[s_idx + 0 * M_C];
+                    float dq1 = s_unpacked[s_idx + 1 * M_C];
+                    float dq2 = s_unpacked[s_idx + 2 * M_C];
+                    float dq3 = s_unpacked[s_idx + 3 * M_C];
 
                     val = fmaf(tap0, dq0, fmaf(tap1, dq1, fmaf(tap2, dq2, tap3 * dq3)));
                 } else if constexpr (StorageMode == 0) {
-                    val = fmaf(h_reg[e][0], s_unpacked[s_idx],
-                          fmaf(h_reg[e][1], s_unpacked[s_idx + 2048],
-                          fmaf(h_reg[e][2], s_unpacked[s_idx + 4096],
-                               h_reg[e][3] * s_unpacked[s_idx + 6144])));
+                    val = fmaf(h_reg[e][0], s_unpacked[s_idx + 0 * M_C],
+                          fmaf(h_reg[e][1], s_unpacked[s_idx + 1 * M_C],
+                          fmaf(h_reg[e][2], s_unpacked[s_idx + 2 * M_C],
+                               h_reg[e][3] * s_unpacked[s_idx + 3 * M_C])));
                 } else {
-                    val = fmaf(d_filter[k],        s_unpacked[s_idx],
-                          fmaf(d_filter[k + 2048], s_unpacked[s_idx + 2048],
-                          fmaf(d_filter[k + 4096], s_unpacked[s_idx + 4096],
-                               d_filter[k + 6144] * s_unpacked[s_idx + 6144])));
+                    val = fmaf(d_filter[k + 0 * M_C], s_unpacked[s_idx + 0 * M_C],
+                          fmaf(d_filter[k + 1 * M_C], s_unpacked[s_idx + 1 * M_C],
+                          fmaf(d_filter[k + 2 * M_C], s_unpacked[s_idx + 2 * M_C],
+                               d_filter[k + 3 * M_C] * s_unpacked[s_idx + 3 * M_C])));
                 }
             }
             thread_data[e] = cx_t(val, 0.0f);
@@ -368,9 +368,9 @@ __global__ void unpack_coarse_ospfb_kernel(
         // Analytical Phase Correction + Selective 16 GHz Subband Write
         if (valid) {
             int global_m = m;
-            int m_factor = ((global_m & 1023) * 625) & 1023;
+            int m_factor = ((global_m & PHASE_PERIOD_MASK) * PHASE_PERIOD_P) & PHASE_PERIOD_MASK;
             #pragma unroll
-            for (int e = 0; e < 2; ++e) { // Subbands [102..921] span e = 0 and e = 1 only
+            for (int e = 0; e < EPT_ACTIVE_COARSE; ++e) { // Subbands [102..921] span e = 0 and e = 1 only
                 int k = tx + e * STRIDE;
                 int sb_idx = k - k_start_subband;
                 if (sb_idx >= 0 && sb_idx < N_SUBBANDS) {
