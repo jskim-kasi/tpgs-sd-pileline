@@ -232,7 +232,7 @@ __global__ void unpack_coarse_ospfb_kernel(
 
     extern __shared__ __align__(alignof(float4)) char smem_raw[];
     cx_t* shared_mem_fft = reinterpret_cast<cx_t*>(smem_raw);
-    float* s_unpacked = reinterpret_cast<float*>(smem_raw + FFT::shared_memory_size);
+    float* s_unpacked    = reinterpret_cast<float*>(smem_raw);
 
     // ── Filter Coefficient Storage Modes ──
     float h_reg[EPT][T];
@@ -252,8 +252,9 @@ __global__ void unpack_coarse_ospfb_kernel(
     float* s_filter = nullptr;
     if constexpr (StorageMode == 1) {
         // Mode 1: Zero-conflict Shared Memory filter caching (30 registers, 1-cycle on-chip read)
-        s_filter = reinterpret_cast<float*>(
-            smem_raw + FFT::shared_memory_size + COARSE_UNPACK_SMEM_BYTES);
+        constexpr size_t scratch_bytes = (COARSE_UNPACK_SMEM_BYTES > FFT::shared_memory_size) ?
+                                          COARSE_UNPACK_SMEM_BYTES : FFT::shared_memory_size;
+        s_filter = reinterpret_cast<float*>(smem_raw + scratch_bytes);
         int total_threads = blockDim.x * blockDim.y;
         for (int i = flat_tid; i < N_TAPS_C; i += total_threads) {
             s_filter[i] = d_filter[i];
@@ -361,6 +362,9 @@ __global__ void unpack_coarse_ospfb_kernel(
             }
             thread_data[e] = cx_t(val, 0.0f);
         }
+
+        // Barrier: Ensure all threads finish reading s_unpacked before cuFFTDx reuses the overlaid shared memory
+        __syncthreads();
 
         // Execute cuFFTDx block FFT
         FFT().execute(thread_data, shared_mem_fft);
@@ -966,10 +970,11 @@ void run_tpgs_pipeline(int num_sms)
     CUDA_CHECK(cudaEventCreate(&ev_f_start));
     CUDA_CHECK(cudaEventCreate(&ev_f_stop));
 
-    // Dynamic Shared Memory Allocation Setup (Option B: Direct Global Unpack - Zero s_packed smem)
-    size_t smem_coarse_mode2 = FFT_C::shared_memory_size + COARSE_UNPACK_SMEM_BYTES;
-    size_t smem_coarse_mode1 = smem_coarse_mode2 + N_TAPS_C * sizeof(float);
-    size_t smem_fine         = FFT_F::shared_memory_size;
+    // Dynamic Shared Memory Allocation Setup (Option B: Overlaid FFT Workspace and Unpack Buffer)
+    size_t smem_coarse_scratch = std::max((size_t)FFT_C::shared_memory_size, COARSE_UNPACK_SMEM_BYTES);
+    size_t smem_coarse_mode2   = smem_coarse_scratch;
+    size_t smem_coarse_mode1   = smem_coarse_scratch + N_TAPS_C * sizeof(float);
+    size_t smem_fine           = FFT_F::shared_memory_size;
     CUDA_CHECK(cudaFuncSetAttribute(unpack_coarse_ospfb_kernel<FFT_C, 0>,
         cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem_coarse_mode2));
     CUDA_CHECK(cudaFuncSetAttribute(unpack_coarse_ospfb_kernel<FFT_C, 1>,
