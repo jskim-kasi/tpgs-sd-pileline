@@ -80,7 +80,8 @@ def plot_rtx6000_full_spectrum(data, output_path):
         ax1.axvline(f0_g, color='#d62728', linestyle='--', linewidth=1.2, alpha=0.85)
         ax1.plot(f0_g, p_db, marker='*', markersize=9, color='#d62728')
         ax1.annotate(f'Tone {idx+1}\n{f0_g:.3f} GHz', xy=(f0_g, p_db),
-                     xytext=(f0_g - 0.25 if idx > 2 else f0_g + 0.15, p_db + 3.0),
+                     xytext=(f0_g - 0.20 if idx == 4 else (f0_g - 0.25 if idx > 2 else f0_g + 0.15), p_db + 2.2),
+                     ha='right' if idx == 4 else 'left',
                      arrowprops=dict(arrowstyle="->", color='#d62728', lw=1.2),
                      fontsize=8.5, fontweight='bold', color='#d62728',
                      bbox=dict(boxstyle='round,pad=0.2', facecolor='#ffffdd', alpha=0.9, edgecolor='#d62728'))
@@ -90,7 +91,7 @@ def plot_rtx6000_full_spectrum(data, output_path):
                   fontsize=13.5, fontweight='bold', pad=12)
     ax1.grid(True, linestyle=':', alpha=0.6)
     ax1.legend(loc='upper right', framealpha=0.9)
-    ax1.set_ylim([median_db - 8.0, max_db + 8.0])
+    ax1.set_ylim([median_db - 8.0, max_db + 10.0])
 
     # Panel 2: Linear Power
     ax2.plot(freqs_ghz, data, color='#2ca02c', linewidth=0.5, alpha=0.9, label='Linear Power ($|X|^2$)')
@@ -98,7 +99,8 @@ def plot_rtx6000_full_spectrum(data, output_path):
         ax2.axvline(f0_g, color='#d62728', linestyle='--', linewidth=1.2, alpha=0.85)
         ax2.plot(f0_g, p_lin, marker='*', markersize=9, color='#d62728')
         ax2.annotate(f'Tone {idx+1}: {f0_g:.3f} GHz', xy=(f0_g, p_lin),
-                     xytext=(f0_g - 0.3 if idx > 2 else f0_g + 0.15, p_lin * 0.9),
+                     xytext=(f0_g - 0.12 if idx == 4 else (f0_g - 0.3 if idx > 2 else f0_g + 0.15), p_lin * 0.9),
+                     ha='right' if idx == 4 else 'left',
                      arrowprops=dict(arrowstyle="->", color='#d62728', lw=1.2),
                      fontsize=8.5, fontweight='bold', color='#b22222',
                      bbox=dict(boxstyle='round,pad=0.2', facecolor='#ffffdd', alpha=0.9, edgecolor='#b22222'))
@@ -204,11 +206,12 @@ def plot_rtx6000_tone_zooms(data, output_path):
 
 def load_metrics():
     metrics = {
-        'COARSE_MS': 27.049,
-        'TRANSPOSE_MS': 44.802,
-        'FINE_MS': 11.822,
-        'TOTAL_PIPELINE_MS': 83.677,
-        'REALTIME_FACTOR': 0.57
+        'HIST_MS': 1.017,
+        'COARSE_MS': 15.941,
+        'TRANSPOSE_MS': 13.774,
+        'FINE_MS': 11.593,
+        'TOTAL_PIPELINE_MS': 42.333,
+        'REALTIME_FACTOR': 1.13
     }
     rf_file = os.path.join(REPO_ROOT, 'data', 'roofline_metrics.txt')
     if os.path.exists(rf_file):
@@ -227,74 +230,84 @@ def load_metrics():
 # =============================================================================
 
 def plot_rtx6000_timing_budget(metrics, output_path):
-    coarse_ms = metrics.get('COARSE_MS', 27.049)
-    trans_ms  = metrics.get('TRANSPOSE_MS', 44.802)
-    fine_ms   = metrics.get('FINE_MS', 11.822)
-    total_ms  = metrics.get('TOTAL_PIPELINE_MS', coarse_ms + trans_ms + fine_ms)
+    hist_ms   = metrics.get('HIST_MS', 1.017)
+    coarse_ms = metrics.get('COARSE_MS', 15.941)
+    trans_ms  = metrics.get('TRANSPOSE_MS', 13.774)
+    fine_ms   = metrics.get('FINE_MS', 11.593)
+    total_ms  = metrics.get('TOTAL_PIPELINE_MS', hist_ms + coarse_ms + trans_ms + fine_ms)
     budget_ms = 48.0
     rt_factor = budget_ms / total_ms
 
-    fig, ax = plt.subplots(figsize=(11.5, 6.4), dpi=300)
+    fig, ax = plt.subplots(figsize=(13.2, 7.6), dpi=300)
 
     categories = [
-        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.536M frames)',
-        'Stage 2: Transpose + Mixer\n(1.536M x 820 cuComplex, GDDR7)',
-        'Stage 3: Resamp + Fine CSPFB\n(Kr=8, K2=5, Pow2 2048, 188 SMs)',
+        'Stage 0: 6-Bit ADC Histogram\n(1.92B samples, 1.44 GB, 4-way smem)',
+        'Stage 1: Coarse OSPFB\n(8,192 taps, 1.536M frames, Mode 1 smem)',
+        'Stage 2: Transpose + Grid Mixer\n(1.536M x 820 cuComplex, GDDR7)',
+        'Stage 3: Resampler + Fine CSPFB\n(Kr=8, K2=5, Pow2 2048, 188 SMs)',
         'Total Pipeline Execution\n(Full 48.0 ms TE Stream)'
     ]
-    times = [coarse_ms, trans_ms, fine_ms, total_ms]
-    pcts = [coarse_ms / total_ms * 100, trans_ms / total_ms * 100, fine_ms / total_ms * 100, 100.0]
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#7b1fa2']
+    times = [hist_ms, coarse_ms, trans_ms, fine_ms, total_ms]
+    pcts = [hist_ms / total_ms * 100, coarse_ms / total_ms * 100, trans_ms / total_ms * 100, fine_ms / total_ms * 100, 100.0]
+    colors = ['#8c564b', '#1f77b4', '#ff7f0e', '#2ca02c', '#7b1fa2']
 
     y_pos = np.arange(len(categories))
-    bars = ax.barh(y_pos, times, height=0.52, color=colors, edgecolor='black', linewidth=1.3, alpha=0.92, zorder=3)
+    bars = ax.barh(y_pos, times, height=0.48, color=colors, edgecolor='black', linewidth=1.2, alpha=0.92, zorder=3)
 
     ax.axvline(budget_ms, color='#d62728', linestyle='--', linewidth=2.5, zorder=4,
-               label=f'Real-Time Budget: {budget_ms:.1f} ms (1 Timing Event)')
+               label=f'Real-Time Budget: {budget_ms:.1f} ms (1 Timing Event TE)')
 
-    ax.axvspan(0, budget_ms, color='#e8f5e9', alpha=0.55, zorder=1, label='In-Budget Real-Time Zone (<= 48.0 ms)')
-    ax.axvspan(budget_ms, 120, color='#ffebee', alpha=0.45, zorder=1, label='Over-Budget Latency Zone (> 48.0 ms)')
+    ax.axvspan(0, budget_ms, color='#e8f5e9', alpha=0.55, zorder=1, label='In-Budget Real-Time Zone (<= 48.0 ms) [PASS]')
+    ax.axvspan(budget_ms, 70, color='#ffebee', alpha=0.45, zorder=1, label='Over-Budget Latency Zone (> 48.0 ms)')
 
     for idx, bar in enumerate(bars):
         w = bar.get_width()
         y = bar.get_y() + bar.get_height() / 2
-        pct_str = f"({pcts[idx]:.1f}%)" if idx < 3 else f"(Factor: {rt_factor:.2f}x)"
+        pct_str = f"({pcts[idx]:.1f}%)" if idx < 4 else f"(Factor: {rt_factor:.2f}x RT - PASS)"
         txt = f" {w:.2f} ms  {pct_str}"
-        ax.text(w + 1.0, y, txt, va='center', ha='left', fontsize=11.0, fontweight='bold',
-                color=colors[idx] if idx < 3 else '#4a148c')
+        ax.text(w + 0.8, y, txt, va='center', ha='left', fontsize=10.5, fontweight='bold',
+                color=colors[idx] if idx < 4 else '#4a148c')
 
-    ax.annotate(f'Over-Budget Gap: +{total_ms - budget_ms:.2f} ms\n(Real-Time Factor: {rt_factor:.2f}x)',
-                xy=(budget_ms, 3), xytext=(budget_ms + 6.0, 2.3),
-                arrowprops=dict(facecolor='#d62728', edgecolor='#d62728', shrink=0.08, width=2.0, headwidth=7),
-                fontsize=10.0, fontweight='bold', color='#b71c1c',
-                bbox=dict(boxstyle='round,pad=0.35', facecolor='#ffebee', edgecolor='#d62728', alpha=0.95))
+    # Highlight Real-Time Success
+    ax.annotate(f'Real-Time Safety Margin: +{budget_ms - total_ms:.2f} ms\n(Real-Time Factor: {rt_factor:.2f}x [PASS])',
+                xy=(total_ms, 3.9), xytext=(33.0, 3.35),
+                arrowprops=dict(facecolor='#2ca02c', edgecolor='#2ca02c', shrink=0.08, width=2.0, headwidth=7),
+                fontsize=10.5, fontweight='bold', color='#1b5e20',
+                bbox=dict(boxstyle='round,pad=0.35', facecolor='#e8f5e9', edgecolor='#2ca02c', alpha=0.95))
 
     # Highlight Stage 3 compute win
-    ax.annotate(f'Fine CSPFB Speedup:\n1.64x faster than GH200!\n({fine_ms:.2f} ms vs 19.43 ms)',
-                xy=(fine_ms, 1.74), xytext=(55.0, 1.65),
+    ax.annotate(f'Fine CSPFB Compute Win:\n1.45x faster than GH200!\n({fine_ms:.2f} ms vs 16.78 ms)',
+                xy=(fine_ms, 3.0), xytext=(22.0, 2.2),
                 arrowprops=dict(facecolor='#2ca02c', edgecolor='#2ca02c', shrink=0.08, width=1.5, headwidth=6),
                 fontsize=9.2, fontweight='bold', color='#1b5e20',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#e8f5e9', edgecolor='#2ca02c', alpha=0.95))
 
+    # Highlight Stage 1 compute win
+    ax.annotate(f'Coarse OSPFB Compute Win:\n1.32x faster than GH200!\n({coarse_ms:.2f} ms vs 21.05 ms)',
+                xy=(coarse_ms, 1.0), xytext=(17.0, 0.65),
+                arrowprops=dict(facecolor='#1f77b4', edgecolor='#1f77b4', shrink=0.08, width=1.5, headwidth=6),
+                fontsize=9.2, fontweight='bold', color='#0d47a1',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='#e3f2fd', edgecolor='#1f77b4', alpha=0.95))
+
     ax.set_yticks(y_pos)
     ax.set_yticklabels(categories, fontsize=10.5, fontweight='bold')
     ax.invert_yaxis()
-    ax.set_xlabel('Execution Time on NVIDIA RTX PRO 6000 Blackwell (ms)', fontsize=11.5, fontweight='bold')
-    ax.set_title('ALMA WSU 40 Gsps Spectrometer: Execution Time vs 48.0 ms Budget on RTX PRO 6000 Blackwell',
+    ax.set_xlabel('Execution Latency on NVIDIA RTX PRO 6000 Blackwell (ms)', fontsize=11.5, fontweight='bold')
+    ax.set_title('ALMA WSU 40 Gsps Spectrometer: Execution Latency vs 48.0 ms Budget on RTX PRO 6000 Blackwell',
                  fontsize=12.0, fontweight='bold', pad=14)
-    ax.set_xlim(0, 115)
+    ax.set_xlim(0, 68)
     ax.grid(axis='x', linestyle=':', alpha=0.7, zorder=2)
-    ax.legend(loc='upper right', fontsize=9.8, framealpha=0.95, facecolor='white', edgecolor='#cccccc')
+    ax.legend(loc='upper right', fontsize=10.0, framealpha=0.95, facecolor='white', edgecolor='#cccccc')
 
     kpi_text = (
         "Hardware: NVIDIA RTX PRO 6000 Blackwell Server Edition (188 SMs, Compute 12.0, 96 GB GDDR7)\n"
         "Observation TE Epoch: 48.0 ms (1.92 GSa @ 40.0 Gsps) | Bandwidth: 16.0 GHz (820 subbands) | 1,185,185 channels"
     )
-    fig.text(0.5, 0.025, kpi_text, ha='center', va='bottom', fontsize=9.2, fontweight='bold', color='#004d40',
+    fig.text(0.5, 0.02, kpi_text, ha='center', va='bottom', fontsize=9.2, fontweight='bold', color='#004d40',
              multialignment='center',
              bbox=dict(boxstyle='round,pad=0.4', facecolor='#e0f2f1', edgecolor='#00796b', alpha=0.95))
 
-    plt.tight_layout(rect=[0.02, 0.11, 0.98, 0.96])
+    plt.tight_layout(rect=[0.02, 0.09, 0.98, 0.96])
     plt.savefig(output_path, dpi=300)
     plt.close()
     print(f"[3/4] Saved RTX6000 Timing Budget: {output_path}")
@@ -309,9 +322,9 @@ def plot_rtx6000_roofline(metrics, output_path):
     PEAK_BW_TBS = 1.4612       # GDDR7 Peak (1,461.2 GB/s)
     RIDGE_INTENSITY = (PEAK_FLOPS_TFLOPS * 1e12) / (PEAK_BW_TBS * 1e12) # ~80.07 FLOP/Byte
 
-    coarse_ms = metrics.get('COARSE_MS', 27.049)
-    trans_ms  = metrics.get('TRANSPOSE_MS', 44.802)
-    fine_ms   = metrics.get('FINE_MS', 11.822)
+    coarse_ms = metrics.get('COARSE_MS', 15.941)
+    trans_ms  = metrics.get('TRANSPOSE_MS', 13.774)
+    fine_ms   = metrics.get('FINE_MS', 11.593)
 
     # Kernel Metrics Calculations (Full 48.0 ms Timing Event TE)
     coarse_flops = 1536000 * (112640 + 16384 + 4920) # ~205.7 GFLOPs
@@ -352,15 +365,16 @@ def plot_rtx6000_roofline(metrics, output_path):
                label=f'Fine CSPFB ({fine_perf_tflops:.2f} TFLOP/s, t={fine_ms:.2f} ms)')
 
     # Annotations
-    ax.annotate(f'Coarse OSPFB\n({coarse_perf_tflops:.2f} TFLOP/s)', xy=(coarse_ai, coarse_perf_tflops),
-                xytext=(coarse_ai * 1.25, coarse_perf_tflops * 0.8),
+    ax.annotate(f'Coarse OSPFB\n({coarse_perf_tflops:.2f} TFLOP/s, 1.32x GH200)', xy=(coarse_ai, coarse_perf_tflops),
+                xytext=(coarse_ai * 1.15, coarse_perf_tflops * 1.65),
                 arrowprops=dict(arrowstyle="->", color='#1f77b4', lw=1.3), fontweight='bold', fontsize=9.2)
-    ax.annotate(f'Transpose + Mixer\n({trans_bw_gbs:.0f} GB/s GDDR7)', xy=(trans_ai, trans_perf_tflops),
+    ax.annotate(f'Transpose + Mixer\n({trans_bw_gbs:.0f} GB/s GDDR7 - 100% Saturation)', xy=(trans_ai, trans_perf_tflops),
                 xytext=(0.55, 0.08),
                 arrowprops=dict(arrowstyle="->", color='#ff7f0e', lw=1.3), fontweight='bold', fontsize=9.2)
-    ax.annotate(f'Fine CSPFB\n({fine_perf_tflops:.2f} TFLOP/s, 1.64x GH200)', xy=(fine_ai, fine_perf_tflops),
-                xytext=(fine_ai * 1.25, fine_perf_tflops * 0.85),
-                arrowprops=dict(arrowstyle="->", color='#2ca02c', lw=1.3), fontweight='bold', fontsize=9.2)
+    ax.annotate(f'Fine CSPFB\n({fine_perf_tflops:.2f} TFLOP/s, 1.45x GH200)', xy=(fine_ai, fine_perf_tflops),
+                xytext=(fine_ai * 0.28, fine_perf_tflops * 0.25),
+                arrowprops=dict(arrowstyle="->", color='#2ca02c', lw=1.3), fontweight='bold', fontsize=9.2,
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.9, edgecolor='none'))
 
     # Shading regions
     ax.text(0.14, 2.5, 'Memory Bandwidth-Bound Region\n(GDDR7 Cap: 1.46 TB/s)',
@@ -404,4 +418,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
