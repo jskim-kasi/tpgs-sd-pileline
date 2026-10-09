@@ -59,6 +59,13 @@ To eliminate intra-warp serialization, the kernel allocates four interleaved pri
 
 ```cpp
 __shared__ unsigned int s_hist[4][64]; // 256 uint32_t elements = 1,024 bytes smem
+
+// Direct 2D shared memory initialization (1 thread per bin across 256 threads)
+int tid = threadIdx.x;
+if (tid < 256) {
+    s_hist[tid >> 6][tid & 63] = 0; // tid / 64 = bank, tid % 64 = bin
+}
+__syncthreads();
 ```
 
 Each thread in a warp is assigned to one of the four banks based on its thread ID:

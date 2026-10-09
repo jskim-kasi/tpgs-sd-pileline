@@ -110,7 +110,7 @@ __global__ void calc_histogram_6bit_kernel(
 
     int tid = threadIdx.x;
     if (tid < 256) {
-        reinterpret_cast<unsigned int*>(s_hist)[tid] = 0;
+        s_hist[tid >> 6][tid & 63] = 0;
     }
     __syncthreads();
 
